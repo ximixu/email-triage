@@ -1,0 +1,13 @@
+categories:
+  - name: important
+    description: "Personal emails, work-related, bills, legal documents"
+    action: mark_read
+  - name: marketing
+    description: "Promotions, newsletters, sales offers, marketing"
+    action: mark_read
+  - name: junk
+    description: "Spam, phishing, unsolicited bulk mail"
+    action: move_to_junk
+  - name: other
+    description: "Anything that doesn't clearly fit the above"
+    action: mark_read
