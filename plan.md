@@ -5,11 +5,12 @@
 ```
 email-triage/
 ├── config.yaml          # Categories, actions, IMAP/LLM settings
-├── .env                 # Secrets (password, API key)
+├── .env                 # Secrets (password/oauth, API key)
 ├── src/
 │   ├── __init__.py
 │   ├── config.py        # Loads config.yaml + .env
-│   ├── imap_client.py   # Fetch unread emails, parse headers/body
+│   ├── oauth.py         # MSAL device code flow, token storage/refresh
+│   ├── imap_client.py   # Fetch unread emails (basic auth or XOAUTH2)
 │   ├── classifier.py    # Send email content to OpenRouter LLM
 │   ├── actions.py       # Mark read, move to folder, delete
 │   └── triage.py        # Orchestrator + CLI entry point
@@ -26,12 +27,19 @@ email-triage/
   - `pyyaml` — parse config.yaml
   - `python-dotenv` — load .env secrets
   - `openai` — OpenRouter uses OpenAI-compatible API
+  - `msal` — Microsoft Authentication Library (OAuth2 device code flow)
 - Create `.env.example` as a template:
   ```
   IMAP_HOST=imap.example.com
   IMAP_USER=user@example.com
+  # Option A: Basic auth (app password)
   IMAP_PASS=your-password
+  # Option B: OAuth2 (takes precedence if set)
+  OAUTH_CLIENT_ID=your-azure-ad-client-id
+  # Option B only — tenant: "consumers" for personal, "organizations" for work
+  OAUTH_TENANT=consumers
   OPENROUTER_API_KEY=sk-or-...
+  OPENROUTER_MODEL=openai/gpt-4o-mini
   ```
 - Create `config.yaml` to define categories and their actions:
   ```yaml
@@ -54,16 +62,27 @@ email-triage/
 
 - Load `.env` via `dotenv`
 - Parse `config.yaml` via `pyyaml`
-- Validate required fields (categories, IMAP host, user, OpenRouter key)
+- Validate required fields (categories, IMAP host, user, plus either password or OAuth client ID)
 - Return a typed `AppConfig` object (dataclass) with:
-  - `imap_host`, `imap_user`, `imap_pass`
+  - `imap_host`, `imap_user`, `imap_pass` (optional, basic auth)
+  - `oauth_client_id`, `oauth_tenant` (optional, XOAUTH2)
   - `openrouter_api_key`, `openrouter_model` (default `"openai/gpt-4o-mini"`)
   - `categories` list of category dataclasses
+
+### Step 2.5: OAuth2 token manager (`src/oauth.py`)
+
+- Use `msal.PublicClientApplication` with device code flow (no browser redirect server needed)
+- Scopes: `https://outlook.office365.com/IMAP.AccessAsUser.All offline_access`
+- On first run: initiate device flow, print URL + code for user to visit, poll for token
+- Store refresh token in `~/.cache/email-triage/token.json`
+- `get_access_token()` — return cached access token, refresh if expired
+- Only required when `OAUTH_CLIENT_ID` is set in `.env`
 
 ### Step 3: Email fetch (`src/imap_client.py`)
 
 - Connect via IMAP SSL (`imaplib.IMAP4_SSL`)
-- Login with credentials
+- **Auth strategy**: If OAuth config is present, use XOAUTH2 SASL; otherwise fall back to basic auth with password
+- XOAUTH2 SASL: `user={user}\x01auth=Bearer {access_token}\x01\x01`
 - Select `INBOX`
 - Search for `UNSEEN` messages (returns UIDs)
 - For each UID, fetch `RFC822` (full raw message)
@@ -142,3 +161,5 @@ email-triage/
 - **Secrets**: Credentials in `.env`, not in `config.yaml` (so config can be committed)
 - **OpenAI-compatible API**: OpenRouter exposes an OpenAI-compatible endpoint, so we use the `openai` Python client directly
 - **Truncation**: Email bodies truncated to ~2000 chars before sending to LLM to stay under token limits and reduce cost
+- **OAuth2 via Device Code Flow**: Uses MSAL device code flow (no browser redirect server needed) for XOAUTH2 IMAP auth. Falls back to basic auth when no OAuth config is present. Supports both personal Microsoft accounts (`consumers` tenant) and organizational accounts.
+- **Token caching**: Refresh tokens stored in `~/.cache/email-triage/token.json` so the browser consent flow is a one-time step.
