@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import imaplib
 
 from .config import AppConfig
+from .oauth import get_access_token
 
 BODY_TRUNCATE_CHARS = 2000
 
@@ -20,7 +21,12 @@ class Email:
 
 def connect_imap(config: AppConfig) -> imaplib.IMAP4_SSL:
     conn = imaplib.IMAP4_SSL(config.imap_host)
-    conn.login(config.imap_user, config.imap_pass)
+    if config.use_oauth:
+        token = get_access_token(config.oauth_client_id, config.oauth_tenant)
+        auth_string = f"user={config.imap_user}\x01auth=Bearer {token}\x01\x01"
+        conn.authenticate("XOAUTH2", lambda _: auth_string.encode())
+    else:
+        conn.login(config.imap_user, config.imap_pass)
     return conn
 
 
