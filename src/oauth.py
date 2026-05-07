@@ -4,7 +4,7 @@ from pathlib import Path
 
 import msal
 
-SCOPES = ["https://outlook.office.com/IMAP.AccessAsUser.All", "offline_access"]
+SCOPES = ["https://outlook.office.com/IMAP.AccessAsUser.All"]
 TOKEN_CACHE_PATH = Path.home() / ".cache" / "email-triage" / "token.json"
 
 
