@@ -20,10 +20,10 @@ class AppConfig:
     imap_host: str
     imap_user: str
     openrouter_api_key: str
+    openrouter_model: str
     imap_pass: str | None = None
     oauth_client_id: str | None = None
     oauth_tenant: str = "consumers"
-    openrouter_model: str = "openai/gpt-4o-mini"
     categories: list[Category] = field(default_factory=list)
 
     @property
@@ -46,7 +46,7 @@ def load_config(config_path: str | Path = "config.yaml") -> AppConfig:
     oauth_client_id = os.environ.get("OAUTH_CLIENT_ID") or None
     oauth_tenant = os.environ.get("OAUTH_TENANT", "consumers")
     api_key = os.environ["OPENROUTER_API_KEY"]
-    model = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+    model = os.environ["OPENROUTER_MODEL"]
 
     if not oauth_client_id and not imap_pass:
         raise RuntimeError(
