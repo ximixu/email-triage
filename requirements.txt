@@ -2,3 +2,5 @@ pyyaml
 python-dotenv
 openai
 msal
+keyring
+requests
