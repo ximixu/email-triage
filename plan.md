@@ -1,165 +1,62 @@
 # Email Triage System — Implementation Plan
 
-## Architecture
+## Context
 
-```
-email-triage/
-├── config.yaml          # Categories, actions, IMAP/LLM settings
-├── .env                 # Secrets (password/oauth, API key)
-├── src/
-│   ├── __init__.py
-│   ├── config.py        # Loads config.yaml + .env
-│   ├── oauth.py         # MSAL device code flow, token storage/refresh
-│   ├── imap_client.py   # Fetch unread emails (basic auth or XOAUTH2)
-│   ├── classifier.py    # Send email content to OpenRouter LLM
-│   ├── actions.py       # Mark read, move to folder, delete
-│   └── triage.py        # Orchestrator + CLI entry point
-├── requirements.txt
-└── README.md
-```
+A multi-account email triage pipeline (Outlook + Gmail) that fetches unread mail, classifies each message with an LLM, and applies a per-category action (mark read / move to junk / etc.). Config + OAuth (keyring-backed) + IMAP fetch + LLM classifier are already wired and exercised by `scripts/fetch_unread.py` and `scripts/classify_unread.py`. What's left is the **act** half of the pipeline — turning classifications into mailbox actions — and an orchestrator that runs the full fetch→classify→act loop across all accounts.
 
-## Step-by-step Plan
+## Remaining work
 
-### Step 1: Project scaffolding
+### Step E: Email actions (`src/actions.py`)
 
-- Create `src/` directory structure and placeholder files
-- Create `requirements.txt` with dependencies:
-  - `pyyaml` — parse config.yaml
-  - `python-dotenv` — load .env secrets
-  - `openai` — OpenRouter uses OpenAI-compatible API
-  - `msal` — Microsoft Authentication Library (OAuth2 device code flow)
-- Create `.env.example` as a template:
-  ```
-  IMAP_HOST=imap.example.com
-  IMAP_USER=user@example.com
-  # Option A: Basic auth (app password)
-  IMAP_PASS=your-password
-  # Option B: OAuth2 (takes precedence if set)
-  OAUTH_CLIENT_ID=your-azure-ad-client-id
-  # Option B only — tenant: "consumers" for personal, "organizations" for work
-  OAUTH_TENANT=consumers
-  OPENROUTER_API_KEY=sk-or-...
-  OPENROUTER_MODEL=openai/gpt-4o-mini
-  ```
-- Create `config.yaml` to define categories and their actions:
-  ```yaml
-  categories:
-    - name: important
-      description: "Personal emails, work-related, bills, legal documents"
-      action: mark_read
-    - name: marketing
-      description: "Promotions, newsletters, sales offers, marketing"
-      action: mark_read
-    - name: junk
-      description: "Spam, phishing, unsolicited bulk mail"
-      action: move_to_junk
-    - name: other
-      description: "Anything that doesn't clearly fit the above"
-      action: mark_read
-  ```
+- `mark_read(conn, uid)` — set `\Seen` via `STORE`.
+- `move_to_folder(conn, uid, folder)` — `COPY` to folder, set `\Deleted` on original, `EXPUNGE`.
+- `move_to_junk(conn, uid, account)` — calls `move_to_folder` with `account.junk_folder` (Gmail `[Gmail]/Spam` vs Outlook `Junk`).
+- `delete(conn, uid)` — set `\Deleted`, `EXPUNGE`.
+- Action dispatch table mapping config action names → functions.
 
-### Step 2: Config loader (`src/config.py`)
+### Step F: Orchestrator (`src/triage.py`)
 
-- Load `.env` via `dotenv`
-- Parse `config.yaml` via `pyyaml`
-- Validate required fields (categories, IMAP host, user, plus either password or OAuth client ID)
-- Return a typed `AppConfig` object (dataclass) with:
-  - `imap_host`, `imap_user`, `imap_pass` (optional, basic auth)
-  - `oauth_client_id`, `oauth_tenant` (optional, XOAUTH2)
-  - `openrouter_api_key`, `openrouter_model` (default `"openai/gpt-4o-mini"`)
-  - `categories` list of category dataclasses
-
-### Step 2.5: OAuth2 token manager (`src/oauth.py`)
-
-- Use `msal.PublicClientApplication` with device code flow (no browser redirect server needed)
-- Scopes: `https://outlook.office365.com/IMAP.AccessAsUser.All offline_access`
-- On first run: initiate device flow, print URL + code for user to visit, poll for token
-- Store refresh token in `~/.cache/email-triage/token.json`
-- `get_access_token()` — return cached access token, refresh if expired
-- Only required when `OAUTH_CLIENT_ID` is set in `.env`
-
-### Step 3: Email fetch (`src/imap_client.py`)
-
-- Connect via IMAP SSL (`imaplib.IMAP4_SSL`)
-- **Auth strategy**: If OAuth config is present, use XOAUTH2 SASL; otherwise fall back to basic auth with password
-- XOAUTH2 SASL: `user={user}\x01auth=Bearer {access_token}\x01\x01`
-- Select `INBOX`
-- Search for `UNSEEN` messages (returns UIDs)
-- For each UID, fetch `RFC822` (full raw message)
-- Parse with `email.message_from_bytes`
-- Extract plain text body from multipart/alternative messages
-- Return a list of `Email` dataclasses:
+- `argparse`: `--config`, `--dry-run`, `--limit N`, `--verbose`, `--account NAME`.
+- Loop:
   ```python
-  @dataclass
-  class Email:
-      uid: str
-      message_id: str
-      from_: str
-      subject: str
-      date: str
-      body: str  # plain text, truncated
+  for account in accounts_to_run:
+      conn = connect_imap(account)
+      try:
+          emails = fetch_unread(conn, limit=args.limit)
+          results = classify_in_parallel(emails, config)  # ThreadPoolExecutor pattern from classify_unread.py
+          if not args.dry_run:
+              for r in results:
+                  apply_action(conn, r, account, config)
+      finally:
+          conn.logout()
   ```
-- Logout/close connection
+- Print per-account summary + combined total.
 
-### Step 4: LLM harness (`src/classifier.py`)
+## Reused utilities
 
-- Use `openai.OpenAI` pointed at `https://openrouter.ai/api/v1`
-- Build a prompt listing the category names + descriptions from config
-- For each email, send subject + body (truncated to ~2000 chars to stay under token limits)
-- Prompt instructs the LLM to return JSON like:
-  ```json
-  {"category": "important", "reason": "Brief explanation"}
-  ```
-- Parse response, validate category matches a known category
-- Use `other` as fallback if parsing fails or LLM returns unknown category
-- Handle retries on API errors with exponential backoff
-- Return a `ClassificationResult` with category, reason, and the email
+- `Email` dataclass — `src/imap_client.py`
+- `ClassificationResult`, `classify_email` — `src/classifier.py`
+- `Account`, `Category`, `AppConfig.get_account()` — `src/config.py`
+- `connect_imap(account)`, `fetch_unread(conn)` — `src/imap_client.py`
+- ThreadPoolExecutor pattern — `scripts/classify_unread.py` (lift into orchestrator's classify step)
 
-### Step 5: Email actions (`src/actions.py`)
+## Verification
 
-- Functions that take an IMAP connection and Email UID:
-  - `mark_read(conn, uid)` — set `\Seen` flag via `STORE`
-  - `move_to_junk(conn, uid)` — `COPY` to `[Gmail]/Spam` or `Junk` folder, then `STORE +FLAGS (\Deleted)` and `EXPUNGE` the original
-  - `delete(conn, uid)` — mark deleted and expunge
-  - `move_to_folder(conn, uid, folder)` — copy to folder, delete original
-- Action mapping: map config action names to these functions
+```
+python -m src.triage --dry-run --verbose   # classify only, no actions
+python -m src.triage                        # apply actions
+python -m src.triage --account personal_gmail --limit 5
+```
 
-### Step 6: Orchestrator (`src/triage.py`)
+## Out of scope (stretch goals)
 
-- Main entry point with `argparse`:
-  - `--config` / `-c` — path to config.yaml (default: `config.yaml`)
-  - `--dry-run` — classify but don't apply actions
-  - `--limit N` — max number of emails to process (for testing)
-  - `--verbose` / `-v` — print per-email classification details
-- `triage()` function:
-  1. Load config via `load_config()`
-  2. Connect IMAP via `connect_imap()`
-  3. Fetch unread emails via `fetch_unread()`
-  4. For each email, classify via `classify_email()`
-  5. If not dry-run, apply action via `apply_action()`
-  6. Print summary: `X emails processed: N important, M marketing, K junk`
-  7. Disconnect IMAP
-- Example CLI usage:
-  ```
-  python -m src.triage --dry-run --verbose --limit 5
-  python -m src.triage
-  ```
+- Concurrency across accounts (sequential is fine; classification within an account is already parallel).
+- Per-account category or model overrides — single shared lists for now.
+- `--watch` mode / cron scheduling.
+- Email summary report.
+- Reply templates.
 
-### Step 7: Future enhancements (stretch goals)
+## Key design decisions
 
-- **`--watch` mode**: Poll IMAP every N minutes, run triage loop
-- **Email summary report**: Send a summary email of actions taken
-- **Multiple IMAP accounts**: Support multiple inboxes in config
-- **Reply templates**: Auto-reply for specific categories
-- **Systemd service / crontab**: Deploy to VPS for unattended runs
-
-## Key Design Decisions
-
-- **IMAP UIDs**: Track emails by UID rather than sequence number (UID remains stable across sessions)
-- **Dry-run mode**: `--dry-run` flag to test classification without mutating mailbox
-- **Idempotency**: Only process `UNSEEN` emails; don't reprocess already-triaged emails
-- **Secrets**: Credentials in `.env`, not in `config.yaml` (so config can be committed)
-- **OpenAI-compatible API**: OpenRouter exposes an OpenAI-compatible endpoint, so we use the `openai` Python client directly
-- **Truncation**: Email bodies truncated to ~2000 chars before sending to LLM to stay under token limits and reduce cost
-- **OAuth2 via Device Code Flow**: Uses MSAL device code flow (no browser redirect server needed) for XOAUTH2 IMAP auth. Falls back to basic auth when no OAuth config is present. Supports both personal Microsoft accounts (`consumers` tenant) and organizational accounts.
-- **Token caching**: Refresh tokens stored in `~/.cache/email-triage/token.json` so the browser consent flow is a one-time step.
+- **Junk folder per account**: encoded in config so custom folder names work without code changes.
+- **Dry-run by classification, not by connection**: `--dry-run` still opens IMAP and fetches/classifies, just skips the action step — so we can preview what would happen.
