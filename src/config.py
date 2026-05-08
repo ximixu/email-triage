@@ -16,19 +16,28 @@ class Category:
 
 
 @dataclass
+class Account:
+    name: str
+    provider: str
+    host: str
+    user: str
+    junk_folder: str
+    oauth_client_id: str
+    tenant: str | None = None
+
+
+@dataclass
 class AppConfig:
-    imap_host: str
-    imap_user: str
     openrouter_api_key: str
     openrouter_model: str
-    imap_pass: str | None = None
-    oauth_client_id: str | None = None
-    oauth_tenant: str = "consumers"
+    accounts: list[Account] = field(default_factory=list)
     categories: list[Category] = field(default_factory=list)
 
-    @property
-    def use_oauth(self) -> bool:
-        return self.oauth_client_id is not None
+    def get_account(self, name: str) -> Account:
+        for a in self.accounts:
+            if a.name == name:
+                return a
+        raise KeyError(f"No account named {name!r} in config")
 
 
 def load_config(config_path: str | Path = "config.yaml") -> AppConfig:
@@ -40,26 +49,34 @@ def load_config(config_path: str | Path = "config.yaml") -> AppConfig:
         for c in raw["categories"]
     ]
 
-    imap_host = os.environ["IMAP_HOST"]
-    imap_user = os.environ["IMAP_USER"]
-    imap_pass = os.environ.get("IMAP_PASS") or None
-    oauth_client_id = os.environ.get("OAUTH_CLIENT_ID") or None
-    oauth_tenant = os.environ.get("OAUTH_TENANT", "consumers")
-    api_key = os.environ["OPENROUTER_API_KEY"]
-    model = os.environ["OPENROUTER_MODEL"]
+    accounts: list[Account] = []
+    for entry in raw.get("accounts", []):
+        name = entry["name"]
+        provider = entry["provider"]
+        env_key = f"ACCOUNT_{name.upper()}_CLIENT_ID"
+        client_id = os.environ.get(env_key)
+        if not client_id:
+            raise RuntimeError(f"Missing {env_key} in environment for account {name!r}")
 
-    if not oauth_client_id and not imap_pass:
-        raise RuntimeError(
-            "Either OAUTH_CLIENT_ID or IMAP_PASS must be set in .env"
+        tenant = entry.get("tenant")
+        if provider == "microsoft" and tenant is None:
+            tenant = "consumers"
+
+        accounts.append(
+            Account(
+                name=name,
+                provider=provider,
+                host=entry["host"],
+                user=entry["user"],
+                junk_folder=entry["junk_folder"],
+                oauth_client_id=client_id,
+                tenant=tenant,
+            )
         )
 
     return AppConfig(
-        imap_host=imap_host,
-        imap_user=imap_user,
-        imap_pass=imap_pass,
-        oauth_client_id=oauth_client_id,
-        oauth_tenant=oauth_tenant,
-        openrouter_api_key=api_key,
-        openrouter_model=model,
+        openrouter_api_key=os.environ["OPENROUTER_API_KEY"],
+        openrouter_model=os.environ["OPENROUTER_MODEL"],
+        accounts=accounts,
         categories=categories,
     )
