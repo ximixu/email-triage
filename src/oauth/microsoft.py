@@ -1,37 +1,34 @@
-import json
-import time
-from pathlib import Path
-
+import keyring
 import msal
 
+from ..config import Account
+
+KEYRING_SERVICE = "email-triage"
 SCOPES = ["https://outlook.office.com/IMAP.AccessAsUser.All"]
-TOKEN_CACHE_PATH = Path.home() / ".cache" / "email-triage" / "token.json"
 
 
-def _build_app(client_id: str, tenant: str) -> msal.PublicClientApplication:
+def _build_app(account: Account) -> msal.PublicClientApplication:
     cache = msal.SerializableTokenCache()
-    if TOKEN_CACHE_PATH.exists():
-        cache.deserialize(TOKEN_CACHE_PATH.read_text())
+    cached = keyring.get_password(KEYRING_SERVICE, account.name)
+    if cached:
+        cache.deserialize(cached)
 
-    authority = f"https://login.microsoftonline.com/{tenant}"
-    app = msal.PublicClientApplication(
-        client_id=client_id,
+    authority = f"https://login.microsoftonline.com/{account.tenant}"
+    return msal.PublicClientApplication(
+        client_id=account.oauth_client_id,
         authority=authority,
         token_cache=cache,
     )
-    return app
 
 
-def _persist_cache(app: msal.PublicClientApplication) -> None:
+def _persist_cache(app: msal.PublicClientApplication, account: Account) -> None:
     cache: msal.SerializableTokenCache = app.token_cache  # type: ignore[assignment]
     if cache.has_state_changed:
-        TOKEN_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        TOKEN_CACHE_PATH.write_text(cache.serialize())
-        TOKEN_CACHE_PATH.chmod(0o600)
+        keyring.set_password(KEYRING_SERVICE, account.name, cache.serialize())
 
 
-def get_access_token(client_id: str, tenant: str = "consumers") -> str:
-    app = _build_app(client_id, tenant)
+def get_access_token(account: Account) -> str:
+    app = _build_app(account)
 
     accounts = app.get_accounts()
     result = None
@@ -45,7 +42,7 @@ def get_access_token(client_id: str, tenant: str = "consumers") -> str:
         print(flow["message"], flush=True)
         result = app.acquire_token_by_device_flow(flow)
 
-    _persist_cache(app)
+    _persist_cache(app, account)
 
     if "access_token" not in result:
         raise RuntimeError(
