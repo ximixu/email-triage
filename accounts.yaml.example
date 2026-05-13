@@ -1,0 +1,10 @@
+- name: personal_outlook
+  provider: microsoft
+  host: outlook.office365.com
+  user: someone@outlook.com
+  junk_folder: Junk
+- name: personal_gmail
+  provider: google
+  host: imap.gmail.com
+  user: someone@gmail.com
+  junk_folder: "[Gmail]/Spam"

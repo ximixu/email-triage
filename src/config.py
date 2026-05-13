@@ -39,19 +39,23 @@ class AppConfig:
         raise KeyError(f"No account named {name!r} in config")
 
 
-def load_config(config_path: str | Path = "config.yaml") -> AppConfig:
-    with open(config_path) as f:
-        raw = yaml.safe_load(f)
-
+def load_config(
+    accounts_path: str | Path = "accounts.yaml",
+    categories_path: str | Path = "categories.yaml",
+) -> AppConfig:
+    with open(categories_path) as f:
+        raw_categories = yaml.safe_load(f)
     categories = [
         Category(name=c["name"], description=c["description"], action=c["action"])
-        for c in raw["categories"]
+        for c in raw_categories
     ]
 
+    with open(accounts_path) as f:
+        raw_accounts = yaml.safe_load(f)
+
     accounts: list[Account] = []
-    for entry in raw.get("accounts", []):
+    for entry in raw_accounts:
         name = entry["name"]
-        provider = entry["provider"]
         env_key = f"ACCOUNT_{name.upper()}_CLIENT_ID"
         client_id = os.environ.get(env_key)
         if not client_id:
@@ -60,7 +64,7 @@ def load_config(config_path: str | Path = "config.yaml") -> AppConfig:
         accounts.append(
             Account(
                 name=name,
-                provider=provider,
+                provider=entry["provider"],
                 host=entry["host"],
                 user=entry["user"],
                 junk_folder=entry["junk_folder"],

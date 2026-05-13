@@ -4,7 +4,9 @@ My personal email triage system using an LLM to categorize and summarize emails.
 
 ## Configuration
 
-Accounts live in `config.yaml`. Each account's OAuth client ID is read from `.env`, keyed by the account name (uppercased): `ACCOUNT_<NAME>_CLIENT_ID`.
+- `accounts.yaml` (gitignored) — IMAP accounts. Copy `accounts.yaml.example` and fill in your addresses.
+- `categories.yaml` (checked in) — triage categories and their actions.
+- `.env` (gitignored) — `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, and one `ACCOUNT_<NAME>_CLIENT_ID` per account (uppercased account name).
 
 OAuth tokens are persisted in the OS keychain (macOS Keychain / Windows Credential Locker / Linux Secret Service) via the `keyring` library — no plaintext token files. If you previously ran an older version, you can delete `~/.cache/email-triage/token.json`.
 
