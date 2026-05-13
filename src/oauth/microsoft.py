@@ -13,7 +13,7 @@ def _build_app(account: Account) -> msal.PublicClientApplication:
     if cached:
         cache.deserialize(cached)
 
-    authority = f"https://login.microsoftonline.com/{account.tenant}"
+    authority = "https://login.microsoftonline.com/common"
     return msal.PublicClientApplication(
         client_id=account.oauth_client_id,
         authority=authority,

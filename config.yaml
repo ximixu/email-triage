@@ -4,7 +4,6 @@ accounts:
     host: outlook.office365.com
     user: someon@outlook.com
     junk_folder: Junk
-    tenant: consumers
   - name: personal_gmail
     provider: google
     host: imap.gmail.com

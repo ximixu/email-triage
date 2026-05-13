@@ -23,7 +23,6 @@ class Account:
     user: str
     junk_folder: str
     oauth_client_id: str
-    tenant: str | None = None
 
 
 @dataclass
@@ -58,10 +57,6 @@ def load_config(config_path: str | Path = "config.yaml") -> AppConfig:
         if not client_id:
             raise RuntimeError(f"Missing {env_key} in environment for account {name!r}")
 
-        tenant = entry.get("tenant")
-        if provider == "microsoft" and tenant is None:
-            tenant = "consumers"
-
         accounts.append(
             Account(
                 name=name,
@@ -70,7 +65,6 @@ def load_config(config_path: str | Path = "config.yaml") -> AppConfig:
                 user=entry["user"],
                 junk_folder=entry["junk_folder"],
                 oauth_client_id=client_id,
-                tenant=tenant,
             )
         )
 
