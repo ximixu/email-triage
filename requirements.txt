@@ -4,4 +4,3 @@ openai
 msal
 google-auth-oauthlib
 keyring
-requests
