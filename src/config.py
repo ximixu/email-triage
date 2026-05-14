@@ -22,7 +22,6 @@ class Account:
     host: str
     user: str
     junk_folder: str
-    oauth_client_id: str
 
 
 @dataclass
@@ -53,24 +52,16 @@ def load_config(
     with open(accounts_path) as f:
         raw_accounts = yaml.safe_load(f)
 
-    accounts: list[Account] = []
-    for entry in raw_accounts:
-        name = entry["name"]
-        env_key = f"ACCOUNT_{name.upper()}_CLIENT_ID"
-        client_id = os.environ.get(env_key)
-        if not client_id:
-            raise RuntimeError(f"Missing {env_key} in environment for account {name!r}")
-
-        accounts.append(
-            Account(
-                name=name,
-                provider=entry["provider"],
-                host=entry["host"],
-                user=entry["user"],
-                junk_folder=entry["junk_folder"],
-                oauth_client_id=client_id,
-            )
+    accounts = [
+        Account(
+            name=entry["name"],
+            provider=entry["provider"],
+            host=entry["host"],
+            user=entry["user"],
+            junk_folder=entry["junk_folder"],
         )
+        for entry in raw_accounts
+    ]
 
     return AppConfig(
         openrouter_api_key=os.environ["OPENROUTER_API_KEY"],

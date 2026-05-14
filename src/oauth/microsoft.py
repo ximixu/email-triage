@@ -1,3 +1,5 @@
+import os
+
 import keyring
 import msal
 
@@ -15,7 +17,7 @@ def _build_app(account: Account) -> msal.PublicClientApplication:
 
     authority = "https://login.microsoftonline.com/common"
     return msal.PublicClientApplication(
-        client_id=account.oauth_client_id,
+        client_id=os.environ["MICROSOFT_CLIENT_ID"],
         authority=authority,
         token_cache=cache,
     )
