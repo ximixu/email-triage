@@ -1,11 +1,17 @@
 - name: important
   description: "Personal emails, work-related, bills, legal documents"
   action: mark_read
+- name: social
+  description: "Social media notifications, friend updates, event invitations."
+  action: mark_read
+- name: updates
+  description: "Order confirmations, receipts, account statements, shipping notifications."
+  action: mark_read
 - name: marketing
-  description: "Promotions, newsletters, sales offers, marketing"
+  description: "Promotions, newsletters, sales offers, marketing."
   action: mark_read
 - name: junk
-  description: "Spam, phishing, unsolicited bulk mail"
+  description: "Spam, phishing, unsolicited bulk mail. Keep an eye out for domains impersonating known contacts or brands."
   action: move_to_junk
 - name: other
   description: "Anything that doesn't clearly fit the above"

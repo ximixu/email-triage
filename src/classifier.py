@@ -28,7 +28,7 @@ def classify_email(email: Email, config: AppConfig) -> ClassificationResult:
         "You triage emails into one of these categories:\n"
         f"{category_lines}\n\n"
         'Respond with JSON: {"category": "<name>", "summary": "<one-line summary>"}. '
-        "The category must be one of the names listed above. "
+        "The category must be one of the categories listed above. "
         "The summary must be a single short sentence describing the email."
     )
     user_prompt = (
