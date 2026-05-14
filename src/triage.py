@@ -1,4 +1,5 @@
 import argparse
+import time
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -31,6 +32,11 @@ def main() -> None:
     parser.add_argument("--quiet", action="store_true", help="Suppress per-email grouped summary")
     args = parser.parse_args()
 
+    if args.dry_run:
+        print("!!! DRY RUN STILL SETS FETCHED MESSAGES TO READ !!!")
+        print('!!! "ctrl+c" TO CANCEL... !!!')
+        time.sleep(5)
+
     config = load_config()
     accounts = (
         [config.get_account(args.account)] if args.account else config.accounts
@@ -50,12 +56,7 @@ def main() -> None:
             all_results.extend((account, r) for r in results)
 
             for r in results:
-                try:
-                    category = config.get_category(r.category)
-                except KeyError:
-                    totals["unknown"] += 1
-                    continue
-
+                category = config.get_category(r.category)
                 action_fn = ACTIONS.get(category.action)
                 if not args.dry_run and action_fn is not None:
                     try:
@@ -73,17 +74,11 @@ def main() -> None:
         for account, r in all_results:
             by_category[r.category].append((account, r))
 
-        known = [c.name for c in config.categories]
-        unknown = [name for name in by_category if name not in known]
-        for category_name in known + unknown:
-            items = by_category.get(category_name)
+        for category in config.categories:
+            items = by_category.get(category.name)
             if not items:
                 continue
-            try:
-                action_name = config.get_category(category_name).action
-            except KeyError:
-                action_name = "UNKNOWN"
-            print(f"\n=== {category_name} ({len(items)}) → {action_name} ===")
+            print(f"\n=== {category.name} ({len(items)}) → {category.action} ===")
             for account, r in items:
                 print(f"[{account.name}] {r.email.subject[:60]} — {r.summary}")
 
