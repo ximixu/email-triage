@@ -3,7 +3,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .classifier import ClassificationResult, classify_email
-from .config import AppConfig, load_config
+from .config import Account, AppConfig, load_config
 from .imap_client import ACTIONS, Email, connect_imap, fetch_unread
 
 
@@ -28,7 +28,7 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--dry-run", action="store_true", help="Classify but skip actions")
-    parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--quiet", action="store_true", help="Suppress per-email grouped summary")
     args = parser.parse_args()
 
     config = load_config()
@@ -36,7 +36,8 @@ def main() -> None:
         [config.get_account(args.account)] if args.account else config.accounts
     )
 
-    grand_total: Counter[str] = Counter()
+    all_results: list[tuple[Account, ClassificationResult]] = []
+    totals: Counter[str] = Counter()
 
     for account in accounts:
         print(f"\n=== {account.name} ({account.user}) ===")
@@ -46,44 +47,47 @@ def main() -> None:
             print(f"  {len(emails)} unread, classifying with {args.workers} workers")
 
             results = _classify_parallel(emails, config, args.workers)
+            all_results.extend((account, r) for r in results)
 
-            per_account: Counter[str] = Counter()
-            grouped: dict[str, list[ClassificationResult]] = defaultdict(list)
             for r in results:
-                grouped[r.category].append(r)
-
-            for category_name, items in grouped.items():
                 try:
-                    category = config.get_category(category_name)
+                    category = config.get_category(r.category)
                 except KeyError:
-                    print(f"  [unknown category {category_name!r}] skipping {len(items)} emails")
-                    per_account["unknown"] += len(items)
+                    totals["unknown"] += 1
                     continue
 
-                action_name = category.action
-                action_fn = ACTIONS.get(action_name)
-
-                for r in items:
-                    if args.verbose or args.dry_run:
-                        print(
-                            f"  {action_name} <- {category_name}: "
-                            f"[{r.email.from_[:30]}] {r.email.subject[:60]} — {r.summary}"
-                        )
-                    if not args.dry_run and action_fn is not None:
-                        try:
-                            action_fn(conn, r.email.uid, account)
-                        except Exception as exc:
-                            print(f"  [action error] {action_name} on uid {r.email.uid}: {exc}")
-                            per_account["error"] += 1
-                            continue
-                    per_account[action_name] += 1
-
-            print(f"  summary: {dict(per_account)}")
-            grand_total.update(per_account)
+                action_fn = ACTIONS.get(category.action)
+                if not args.dry_run and action_fn is not None:
+                    try:
+                        action_fn(conn, r.email.uid, account)
+                    except Exception as exc:
+                        print(f"  [action error] {category.action} on uid {r.email.uid}: {exc}")
+                        totals["error"] += 1
+                        continue
+                totals[category.action] += 1
         finally:
             conn.logout()
 
-    print(f"\n=== total: {dict(grand_total)} ===")
+    if not args.quiet:
+        by_category: dict[str, list[tuple[Account, ClassificationResult]]] = defaultdict(list)
+        for account, r in all_results:
+            by_category[r.category].append((account, r))
+
+        known = [c.name for c in config.categories]
+        unknown = [name for name in by_category if name not in known]
+        for category_name in known + unknown:
+            items = by_category.get(category_name)
+            if not items:
+                continue
+            try:
+                action_name = config.get_category(category_name).action
+            except KeyError:
+                action_name = "UNKNOWN"
+            print(f"\n=== {category_name} ({len(items)}) → {action_name} ===")
+            for account, r in items:
+                print(f"[{account.name}] {r.email.subject[:60]} — {r.summary}")
+
+    print(f"\n=== total: {dict(totals)} ===")
 
 
 if __name__ == "__main__":
