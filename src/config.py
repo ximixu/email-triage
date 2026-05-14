@@ -37,6 +37,12 @@ class AppConfig:
                 return a
         raise KeyError(f"No account named {name!r} in config")
 
+    def get_category(self, name: str) -> Category:
+        for c in self.categories:
+            if c.name == name:
+                return c
+        raise KeyError(f"No category named {name!r} in config")
+
 
 def load_config(
     accounts_path: str | Path = "accounts.yaml",

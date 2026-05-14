@@ -73,6 +73,39 @@ def _parse_email(uid: bytes, raw: bytes) -> Email | None:
     )
 
 
+def mark_read(conn: imaplib.IMAP4_SSL, uid: str, account: Account) -> None:
+    # No-op: fetch_unread's FETCH RFC822 already sets \Seen server-side.
+    # Kept in ACTIONS for dispatch symmetry with categories.yaml.
+    pass
+
+
+def mark_unread(conn: imaplib.IMAP4_SSL, uid: str, account: Account) -> None:
+    conn.uid("STORE", uid, "-FLAGS", "(\\Seen)")
+
+
+def move_to_folder(conn: imaplib.IMAP4_SSL, uid: str, folder: str) -> None:
+    conn.uid("COPY", uid, folder)
+    conn.uid("STORE", uid, "+FLAGS", "(\\Deleted)")
+    conn.expunge()
+
+
+def move_to_junk(conn: imaplib.IMAP4_SSL, uid: str, account: Account) -> None:
+    move_to_folder(conn, uid, account.junk_folder)
+
+
+def delete(conn: imaplib.IMAP4_SSL, uid: str, account: Account) -> None:
+    conn.uid("STORE", uid, "+FLAGS", "(\\Deleted)")
+    conn.expunge()
+
+
+ACTIONS = {
+    "mark_read": mark_read,
+    "mark_unread": mark_unread,
+    "move_to_junk": move_to_junk,
+    "delete": delete,
+}
+
+
 def _extract_body(msg) -> str:
     if msg.is_multipart():
         for part in msg.walk():
