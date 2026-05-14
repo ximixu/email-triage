@@ -1,5 +1,8 @@
+- name: critical
+  description: "Urgent emails that require immediate attention, such as security alerts, account breaches, or critical work-related messages. Double-check for authenticity, especially if they claim to be from known contacts or brands."
+  action: mark_unread
 - name: important
-  description: "Personal emails, work-related, bills, legal documents"
+  description: "Personal emails, work-related, bills, legal documents. Emails that are important but don't require immediate action."
   action: mark_read
 - name: social
   description: "Social media notifications, friend updates, event invitations."
@@ -11,7 +14,7 @@
   description: "Promotions, newsletters, sales offers, marketing."
   action: mark_read
 - name: junk
-  description: "Spam, phishing, unsolicited bulk mail. Keep an eye out for domains impersonating known contacts or brands."
+  description: "Spam, phishing, unsolicited bulk mail. Keep an eye out for domains impersonating known contacts or brands, and be cautious of emails with urgent language or requests for personal information."
   action: move_to_junk
 - name: other
   description: "Anything that doesn't clearly fit the above"
