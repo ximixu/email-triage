@@ -1,7 +1,11 @@
 import argparse
 import time
+import traceback
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+
+ERROR_LOG = Path(__file__).resolve().parent.parent / "errors.log"
 
 from .classifier import ClassificationResult, classify_email
 from .config import Account, AppConfig, load_config
@@ -19,7 +23,13 @@ def _classify_parallel(
             try:
                 results.append(future.result())
             except Exception as exc:
-                print(f"  [classify error] {email.subject[:60]}: {exc}")
+                print(f"  [classify error] {email.subject[:60]}: {exc} (see {ERROR_LOG.name})")
+                with ERROR_LOG.open("a") as f:
+                    f.write(
+                        f"\n--- {time.strftime('%Y-%m-%d %H:%M:%S')} classify ---\n"
+                        f"uid={email.uid} from={email.from_!r} subject={email.subject!r}\n"
+                        f"{traceback.format_exc()}"
+                    )
     return results
 
 
@@ -62,7 +72,13 @@ def main() -> None:
                     try:
                         action_fn(conn, r.email.uid, account)
                     except Exception as exc:
-                        print(f"  [action error] {category.action} on uid {r.email.uid}: {exc}")
+                        print(f"  [action error] {category.action} on uid {r.email.uid}: {exc} (see {ERROR_LOG.name})")
+                        with ERROR_LOG.open("a") as f:
+                            f.write(
+                                f"\n--- {time.strftime('%Y-%m-%d %H:%M:%S')} action ---\n"
+                                f"action={category.action} uid={r.email.uid} account={account.name}\n"
+                                f"{traceback.format_exc()}"
+                            )
                         totals["error"] += 1
                         continue
                 totals[category.action] += 1
