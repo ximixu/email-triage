@@ -1,6 +1,6 @@
 # email-triage
 
-My personal email triage system using an LLM to categorize and summarize emails.
+My personal email triage system using an LLM to categorize and summarize emails. I run it as a cron job and pipe the output to discord to keep my inboxes clean. 
 
 ## Configuration
 
