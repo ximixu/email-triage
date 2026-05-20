@@ -10,7 +10,11 @@ My personal email triage system using an LLM to categorize and summarize emails.
 
 ## Microsoft (Outlook) setup
 
-Create a public client app in Azure with the IMAP scope `https://outlook.office.com/IMAP.AccessAsUser.All`. Drop the application (client) ID into `.env` as `MICROSOFT_CLIENT_ID`. Make sure it supports all account types (Entra ID/Personal).
+1. At [portal.azure.com](https://portal.azure.com), go to **Microsoft Entra ID → App registrations → New registration**.
+2. Name the app, choose **Accounts in any organizational directory and personal Microsoft accounts**, and register.
+3. **Manage → API permissions → Add a permission → APIs my organization uses** → search **Office 365 Exchange Online** → **Delegated permissions** → enable `IMAP.AccessAsUser.All`.
+4. **Manage → Authentication** → enable **Allow public client flows**.
+5. Copy the **Application (client) ID** into `.env` as `MICROSOFT_CLIENT_ID`.
 
 ## Google (Gmail) setup
 
