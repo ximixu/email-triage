@@ -9,13 +9,14 @@ ERROR_LOG = Path(__file__).resolve().parent.parent / "errors.log"
 
 from .classifier import ClassificationResult, classify_email
 from .config import Account, AppConfig, load_config
-from .imap_client import ACTIONS, Email, connect_imap, fetch_unread
+from .imap_client import ACTIONS, Email, connect_imap, fetch_unread, mark_unread
 
 
 def _classify_parallel(
     emails: list[Email], config: AppConfig, workers: int
-) -> list[ClassificationResult]:
+) -> tuple[list[ClassificationResult], list[Email]]:
     results: list[ClassificationResult] = []
+    failed: list[Email] = []
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(classify_email, e, config): e for e in emails}
         for future in as_completed(futures):
@@ -23,6 +24,7 @@ def _classify_parallel(
             try:
                 results.append(future.result())
             except Exception as exc:
+                failed.append(email)
                 print(f"  [classify error] {email.subject[:60]}: {exc} (see {ERROR_LOG.name})")
                 with ERROR_LOG.open("a") as f:
                     f.write(
@@ -30,7 +32,23 @@ def _classify_parallel(
                         f"uid={email.uid} from={email.from_!r} subject={email.subject!r}\n"
                         f"{traceback.format_exc()}"
                     )
-    return results
+    return results, failed
+
+
+def _restore_unread(conn, account: Account, uid: str) -> bool:
+    """Mark a message unread so a failed run re-triages it next time. Best-effort."""
+    try:
+        mark_unread(conn, uid, account)
+        return True
+    except Exception as exc:
+        print(f"  [restore error] uid {uid}: {exc} (see {ERROR_LOG.name})")
+        with ERROR_LOG.open("a") as f:
+            f.write(
+                f"\n--- {time.strftime('%Y-%m-%d %H:%M:%S')} restore ---\n"
+                f"uid={uid} account={account.name}\n"
+                f"{traceback.format_exc()}"
+            )
+        return False
 
 
 def main() -> None:
@@ -67,8 +85,17 @@ def main() -> None:
             emails = fetch_unread(conn, limit=args.limit)
             print(f"  {len(emails)} unread, classifying with {args.workers} workers")
 
-            results = _classify_parallel(emails, config, args.workers)
+            results, failed = _classify_parallel(emails, config, args.workers)
             all_results.extend((account, r) for r in results)
+
+            # A failed classify left the message marked \Seen (set by fetch) but
+            # never triaged. Restore it to unread so the next run retries it.
+            if not args.dry_run:
+                for e in failed:
+                    if _restore_unread(conn, account, e.uid):
+                        totals["restored"] += 1
+                    else:
+                        totals["error"] += 1
 
             for r in results:
                 category = config.get_category(r.category)
@@ -85,6 +112,9 @@ def main() -> None:
                                 f"{traceback.format_exc()}"
                             )
                         totals["error"] += 1
+                        # Restore so a failed action is retried next run rather
+                        # than left read-and-untriaged.
+                        _restore_unread(conn, account, r.email.uid)
                         continue
                 totals[category.action] += 1
         finally:

@@ -1,11 +1,12 @@
 import email
-import time
+import email.header
 from dataclasses import dataclass
 
 import imaplib
 
 from .config import Account
 from .oauth import get_access_token
+from .retry import with_retries
 
 BODY_TRUNCATE_CHARS = 2000
 
@@ -24,18 +25,26 @@ def connect_imap(account: Account, max_retries: int = 3) -> imaplib.IMAP4_SSL:
     token = get_access_token(account)
     auth_string = f"user={account.user}\x01auth=Bearer {token}\x01\x01"
 
-    last_exc: Exception | None = None
-    for attempt in range(max_retries):
+    def _connect() -> imaplib.IMAP4_SSL:
+        conn = imaplib.IMAP4_SSL(account.host)
         try:
-            conn = imaplib.IMAP4_SSL(account.host)
             conn.authenticate("XOAUTH2", lambda _: auth_string.encode())
-            return conn
-        except Exception as exc:
-            last_exc = exc
-            if attempt < max_retries - 1:
-                time.sleep(2 ** attempt)  # 1s, 2s, 4s backoff
+        except Exception:
+            # Don't leak the open socket when auth fails before we return.
+            try:
+                conn.shutdown()
+            except Exception:
+                pass
+            raise
+        return conn
 
-    raise last_exc  # type: ignore[misc]
+    # Retry only transient failures (dropped sockets, TLS hiccups, server aborts).
+    # imaplib.IMAP4.error (auth rejection) is not retried, so a bad token fails fast.
+    return with_retries(
+        _connect,
+        attempts=max_retries,
+        retry_on=(OSError, imaplib.IMAP4.abort),
+    )
 
 
 def fetch_unread(conn: imaplib.IMAP4_SSL, limit: int | None = None) -> list[Email]:
@@ -61,11 +70,21 @@ def fetch_unread(conn: imaplib.IMAP4_SSL, limit: int | None = None) -> list[Emai
     return emails
 
 
+def _decode_header(value) -> str:
+    """Decode an RFC 2047 encoded-word header (e.g. =?UTF-8?Q?...?=) to text."""
+    if value is None:
+        return ""
+    try:
+        return str(email.header.make_header(email.header.decode_header(str(value))))
+    except Exception:
+        return str(value)
+
+
 def _parse_email(uid: bytes, raw: bytes) -> Email | None:
     msg = email.message_from_bytes(raw)
     message_id = str(msg.get("Message-ID", ""))
-    from_ = str(msg.get("From", ""))
-    subject = str(msg.get("Subject", ""))
+    from_ = _decode_header(msg.get("From"))
+    subject = _decode_header(msg.get("Subject"))
     date = str(msg.get("Date", ""))
 
     body = _extract_body(msg)

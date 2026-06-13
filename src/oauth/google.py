@@ -1,11 +1,13 @@
 import os
 
 import keyring
+from google.auth.exceptions import RefreshError, TransportError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 from ..config import Account
+from ..retry import with_retries
 
 KEYRING_SERVICE = "email-triage"
 SCOPES = ["https://mail.google.com/"]
@@ -39,12 +41,15 @@ def get_access_token(account: Account) -> str:
             scopes=SCOPES,
         )
         try:
-            creds.refresh(Request())
+            with_retries(lambda: creds.refresh(Request()), retry_on=(TransportError,))
             return creds.token
-        except Exception:
-            # Token is invalid. Clear it and raise so caller can skip the account.
+        except RefreshError:
+            # Genuine invalid_grant (revoked/expired). Clear it so the caller can
+            # skip the account and prompt for re-auth.
             keyring.delete_password(KEYRING_SERVICE, account.name)
             raise
+        # A TransportError after exhausted retries propagates WITHOUT deleting the
+        # token — a transient network failure must not destroy valid credentials.
 
     raise RuntimeError(
         f"No refresh token for {account.name}. "
