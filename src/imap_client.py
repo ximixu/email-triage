@@ -1,4 +1,5 @@
 import email
+import time
 from dataclasses import dataclass
 
 import imaplib
@@ -19,12 +20,22 @@ class Email:
     body: str
 
 
-def connect_imap(account: Account) -> imaplib.IMAP4_SSL:
+def connect_imap(account: Account, max_retries: int = 3) -> imaplib.IMAP4_SSL:
     token = get_access_token(account)
     auth_string = f"user={account.user}\x01auth=Bearer {token}\x01\x01"
-    conn = imaplib.IMAP4_SSL(account.host)
-    conn.authenticate("XOAUTH2", lambda _: auth_string.encode())
-    return conn
+
+    last_exc: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            conn = imaplib.IMAP4_SSL(account.host)
+            conn.authenticate("XOAUTH2", lambda _: auth_string.encode())
+            return conn
+        except Exception as exc:
+            last_exc = exc
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)  # 1s, 2s, 4s backoff
+
+    raise last_exc  # type: ignore[misc]
 
 
 def fetch_unread(conn: imaplib.IMAP4_SSL, limit: int | None = None) -> list[Email]:

@@ -38,10 +38,23 @@ def get_access_token(account: Account) -> str:
             client_secret=cfg["client_secret"],
             scopes=SCOPES,
         )
-        creds.refresh(Request())
-        return creds.token
+        try:
+            creds.refresh(Request())
+            return creds.token
+        except Exception:
+            # Token is invalid. Clear it and raise so caller can skip the account.
+            keyring.delete_password(KEYRING_SERVICE, account.name)
+            raise
 
+    raise RuntimeError(
+        f"No refresh token for {account.name}. "
+        f"Run: cd ~/dev/email-triage && .venv/bin/python scripts/reauthorize.py {account.name}"
+    )
+
+
+def run_interactive_oauth(account_name: str) -> None:
+    """Run OAuth flow interactively and store refresh token in keyring."""
     flow = InstalledAppFlow.from_client_config(_client_config(), scopes=SCOPES)
-    creds = flow.run_local_server(port=0)
-    keyring.set_password(KEYRING_SERVICE, account.name, creds.refresh_token)
-    return creds.token
+    creds = flow.run_local_server(port=8765, open_browser=False)
+    keyring.set_password(KEYRING_SERVICE, account_name, creds.refresh_token)
+    print(f"  Token saved for {account_name}")

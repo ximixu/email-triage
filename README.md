@@ -1,6 +1,15 @@
 # email-triage
 
-My personal email triage system using an LLM to categorize and summarize emails. I run it as a cron job and pipe the output to discord to keep my inboxes clean. 
+My personal email triage system using an LLM to categorize and summarize emails. I run it as a cron job and pipe the output to discord to keep my inboxes clean.
+
+## Setup
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
+
+The `run` wrapper script uses `.venv/bin/python`, so set up the venv first.
 
 ## Configuration
 

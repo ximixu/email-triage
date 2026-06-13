@@ -57,7 +57,12 @@ def main() -> None:
 
     for account in accounts:
         print(f"\n=== {account.name} ({account.user}) ===")
-        conn = connect_imap(account)
+        try:
+            conn = connect_imap(account)
+        except Exception as exc:
+            print(f"  SKIPPED: {exc}")
+            totals["error"] += 1
+            continue
         try:
             emails = fetch_unread(conn, limit=args.limit)
             print(f"  {len(emails)} unread, classifying with {args.workers} workers")

@@ -1,4 +1,6 @@
 .env
+.venv/
+errors.log
 accounts.yaml
 __pycache__/
 *.pyc
